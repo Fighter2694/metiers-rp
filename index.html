@@ -182,6 +182,7 @@
       <input id="search" type="text" placeholder="Rechercher un métier, script, mapping…">
     </div>
     <button class="btn primary" id="addBtn">＋ Ajouter un métier</button>
+    <button class="btn" id="exportHtmlBtn">🌟 Exporter (HTML)</button>
     <button class="btn" id="exportBtn">⬇ Exporter (CSV)</button>
     <button class="btn" id="importBtn">⬆ Importer (CSV)</button>
     <input type="file" id="importFile" accept=".csv,text/csv" style="display:none">
@@ -255,6 +256,10 @@ function load(){
     const raw = localStorage.getItem(STORE_KEY);
     if(raw){ rows = JSON.parse(raw); }
   }catch(e){ rows = []; }
+  // Fichier exporté en HTML : si aucune donnée locale, on charge les données intégrées
+  if(!rows.length && window.__SEED_DATA__ && Array.isArray(window.__SEED_DATA__)){
+    rows = window.__SEED_DATA__.map(r=>Object.assign(blankRow(), r));
+  }
   if(!rows.length){ rows = [blankRow()]; }
 }
 
@@ -506,6 +511,24 @@ document.getElementById("importFile").addEventListener("change", e=>{
     e.target.value="";
   };
   reader.readAsText(file,"utf-8");
+});
+
+// ---------- Export HTML autonome (garde le design + données intégrées) ----------
+document.getElementById("exportHtmlBtn").addEventListener("click", ()=>{
+  // sérialise les données en évitant de casser la balise script
+  const json = JSON.stringify(rows).replace(/</g,"\\u003c");
+  const seed = '<script>window.__SEED_DATA__ = '+json+';<\/script>';
+  // copie complète de la page (design + scripts inclus)
+  let html = "<!DOCTYPE html>\n" + document.documentElement.outerHTML;
+  // retire un éventuel seed précédent (si on ré-exporte depuis un fichier déjà exporté)
+  html = html.replace(/<script>window\.__SEED_DATA__[\s\S]*?<\/script>/i, "");
+  // injecte les données juste après <body>
+  html = html.replace(/<body([^>]*)>/i, "<body$1>\n"+seed);
+  const blob = new Blob([html], {type:"text/html;charset=utf-8"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "catalogue-metiers-rp.html";
+  a.click();
 });
 
 document.getElementById("printBtn").addEventListener("click", ()=>window.print());
