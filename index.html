@@ -183,6 +183,8 @@
     </div>
     <button class="btn primary" id="addBtn">＋ Ajouter un métier</button>
     <button class="btn" id="exportBtn">⬇ Exporter (CSV)</button>
+    <button class="btn" id="importBtn">⬆ Importer (CSV)</button>
+    <input type="file" id="importFile" accept=".csv,text/csv" style="display:none">
     <button class="btn ghost" id="printBtn">🖨 Imprimer / PDF</button>
     <button class="btn ghost" id="resetBtn">↺ Réinitialiser</button>
   </div>
@@ -430,6 +432,80 @@ document.getElementById("exportBtn").addEventListener("click", ()=>{
   a.href = URL.createObjectURL(blob);
   a.download = "metiers_rp.csv";
   a.click();
+});
+
+// ---------- Import CSV ----------
+function parseCSV(text){
+  text = text.replace(/^﻿/,"");                 // retire le BOM
+  const firstLine = text.split(/\r?\n/)[0] || "";
+  const delim = firstLine.includes(";") ? ";" : ",";  // détecte ; ou ,
+  const grid = [];
+  let field="", record=[], inQ=false;
+  for(let i=0;i<text.length;i++){
+    const c = text[i];
+    if(inQ){
+      if(c==='"'){ if(text[i+1]==='"'){ field+='"'; i++; } else inQ=false; }
+      else field += c;
+    }else{
+      if(c==='"') inQ=true;
+      else if(c===delim){ record.push(field); field=""; }
+      else if(c==='\n'){ record.push(field); grid.push(record); record=[]; field=""; }
+      else if(c==='\r'){ /* ignore */ }
+      else field += c;
+    }
+  }
+  if(field.length || record.length){ record.push(field); grid.push(record); }
+  return grid;
+}
+
+function importCSV(text){
+  const norm = s => String(s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").trim();
+  const grid = parseCSV(text).filter(r => r.some(c => String(c).trim()!==""));
+  if(!grid.length) return [];
+  const header = grid[0].map(norm);
+  const find = (...keys)=> header.findIndex(h => keys.some(k => h.includes(k)));
+  const idx = {
+    metier:   find("metier","nom"),
+    priorite: find("priorite","prio"),
+    script:   find("script"),
+    mapping:  find("mapping"),
+    pack:     find("pack","vetement"),
+    prix:     find("prix")
+  };
+  // si pas d'en-tête reconnu, on suppose l'ordre standard
+  if(Object.values(idx).every(v=>v<0)){ idx.metier=0;idx.priorite=1;idx.script=2;idx.mapping=3;idx.pack=4;idx.prix=5; }
+  const out=[];
+  for(let i=1;i<grid.length;i++){
+    const r = grid[i];
+    if(r.some(c=>norm(c)==="total")) continue;        // ignore la ligne TOTAL
+    const get = k => idx[k]>=0 ? String(r[idx[k]]??"").trim() : "";
+    const o = {
+      metier:get("metier"),
+      priorite: PRIOS.includes(get("priorite")) ? get("priorite") : "",
+      script:get("script"), mapping:get("mapping"), pack:get("pack"), prix:get("prix")
+    };
+    if(o.metier||o.script||o.mapping||o.pack||o.prix) out.push(o);
+  }
+  return out;
+}
+
+document.getElementById("importBtn").addEventListener("click", ()=> document.getElementById("importFile").click());
+document.getElementById("importFile").addEventListener("change", e=>{
+  const file = e.target.files && e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = ()=>{
+    let imported=[];
+    try{ imported = importCSV(String(reader.result)); }
+    catch(err){ alert("Fichier illisible : "+err.message); e.target.value=""; return; }
+    if(!imported.length){ alert("Aucune ligne valide trouvée dans ce CSV."); e.target.value=""; return; }
+    if(confirm(`Importer ${imported.length} métier(s) ?\n\n⚠️ Cela remplacera le contenu actuel de la page.`)){
+      rows = imported;
+      save(); render();
+    }
+    e.target.value="";
+  };
+  reader.readAsText(file,"utf-8");
 });
 
 document.getElementById("printBtn").addEventListener("click", ()=>window.print());
