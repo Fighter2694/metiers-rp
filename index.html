@@ -102,6 +102,16 @@
   .price-wrap input:hover{border:none}
   .price-wrap input:focus{border:none;background:transparent}
 
+  td.prio{width:118px}
+  td.prio select{
+    width:100%;background:var(--card);border:1px solid transparent;color:var(--txt);
+    font-size:13px;font-weight:700;padding:9px 8px;border-radius:8px;outline:none;
+    cursor:pointer;font-family:inherit;transition:.12s;letter-spacing:.5px;
+  }
+  td.prio select:hover{border-color:var(--line)}
+  td.prio select:focus{border-color:var(--accent)}
+  td.prio select option{background:#1c2030;color:var(--txt);font-weight:600}
+
   td.actions{width:46px;text-align:center}
   .del{
     border:none;background:transparent;color:var(--txt-dim);cursor:pointer;
@@ -164,6 +174,7 @@
           <tr>
             <th class="rownum">#</th>
             <th>Nom du métier</th>
+            <th>Priorité</th>
             <th>Script choisi</th>
             <th>Mapping choisi</th>
             <th>Pack de vêtements</th>
@@ -174,7 +185,7 @@
         <tbody id="tbody"></tbody>
         <tfoot>
           <tr class="total-row">
-            <td colspan="5" class="total-label">Total général</td>
+            <td colspan="6" class="total-label">Total général</td>
             <td class="total-value" id="total">0 €</td>
             <td></td>
           </tr>
@@ -201,7 +212,21 @@ const fmt = new Intl.NumberFormat("fr-FR",{maximumFractionDigits:2});
 
 let rows = [];
 
-function blankRow(){ return {metier:"",script:"",mapping:"",pack:"",prix:""}; }
+const PRIOS = ["P0","P2","P3","P4","P5","P6"];
+const PRIO_COLORS = {P0:"#ff5d6c",P2:"#ff9f43",P3:"#feca57",P4:"#22d3a6",P5:"#54a0ff",P6:"#9aa2bd"};
+
+function blankRow(){ return {metier:"",priorite:"",script:"",mapping:"",pack:"",prix:""}; }
+
+function prioOpts(v){
+  let o = '<option value="">—</option>';
+  PRIOS.forEach(p=>{ o += `<option value="${p}"${v===p?" selected":""}>${p}</option>`; });
+  return o;
+}
+function colorSelect(sel){
+  const c = PRIO_COLORS[sel.value] || "var(--txt-dim)";
+  sel.style.color = c;
+  sel.style.borderColor = sel.value ? c+"66" : "transparent";
+}
 
 function load(){
   try{
@@ -231,6 +256,7 @@ function render(){
     tr.innerHTML = `
       <td class="rownum">${i+1}</td>
       <td><input data-f="metier"  value="${esc(r.metier)}"  placeholder="ex : Mécanicien"></td>
+      <td class="prio"><select data-f="priorite">${prioOpts(r.priorite)}</select></td>
       <td><input data-f="script"  value="${esc(r.script)}"  placeholder="ex : qb-mechanicjob"></td>
       <td><input data-f="mapping" value="${esc(r.mapping)}" placeholder="ex : Tuner Shop MLO"></td>
       <td><input data-f="pack"    value="${esc(r.pack)}"    placeholder="ex : Combinaison garage"></td>
@@ -240,6 +266,7 @@ function render(){
     tbody.appendChild(tr);
   });
   countEl.textContent = rows.length;
+  tbody.querySelectorAll("select").forEach(colorSelect);
   recalc();
   applyFilter();
 }
@@ -259,6 +286,17 @@ tbody.addEventListener("input", e=>{
   const i = +tr.dataset.index;
   rows[i][inp.dataset.f] = inp.value;
   if(inp.dataset.f==="prix") recalc();
+  save();
+});
+
+// Priority dropdown change
+tbody.addEventListener("change", e=>{
+  const sel = e.target.closest("select");
+  if(!sel) return;
+  const tr = e.target.closest("tr");
+  const i = +tr.dataset.index;
+  rows[i][sel.dataset.f] = sel.value;
+  colorSelect(sel);
   save();
 });
 
@@ -289,21 +327,21 @@ function applyFilter(){
   const q = searchEl.value.trim().toLowerCase();
   tbody.querySelectorAll("tr").forEach(tr=>{
     if(!q){ tr.style.display=""; return; }
-    const txt = Array.from(tr.querySelectorAll("input")).map(i=>i.value.toLowerCase()).join(" ");
+    const txt = Array.from(tr.querySelectorAll("input,select")).map(i=>i.value.toLowerCase()).join(" ");
     tr.style.display = txt.includes(q) ? "" : "none";
   });
 }
 
 // Export CSV
 document.getElementById("exportBtn").addEventListener("click", ()=>{
-  const head = ["Nom du metier","Script","Mapping","Pack de vetements","Prix"];
+  const head = ["Nom du metier","Priorite","Script","Mapping","Pack de vetements","Prix"];
   const lines = [head.join(";")];
   rows.forEach(r=>{
-    lines.push([r.metier,r.script,r.mapping,r.pack,r.prix]
+    lines.push([r.metier,r.priorite,r.script,r.mapping,r.pack,r.prix]
       .map(v=>'"'+String(v??"").replace(/"/g,'""')+'"').join(";"));
   });
   const sum = rows.reduce((a,r)=>a+parsePrice(r.prix),0);
-  lines.push(["","","","TOTAL",sum].map(v=>'"'+v+'"').join(";"));
+  lines.push(["","","","","TOTAL",sum].map(v=>'"'+v+'"').join(";"));
   const blob = new Blob(["﻿"+lines.join("\r\n")],{type:"text/csv;charset=utf-8"});
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
