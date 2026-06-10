@@ -132,6 +132,30 @@
   td.prio select:focus{border-color:var(--accent)}
   td.prio select option{background:#1c2030;color:var(--txt);font-weight:600}
 
+  /* --- Champ multi-scripts (étiquettes) --- */
+  td.scripts{min-width:210px}
+  .tags{
+    display:flex;flex-wrap:wrap;gap:5px;align-items:center;cursor:text;
+    padding:5px 6px;border:1px solid transparent;border-radius:8px;min-height:38px;transition:.12s;
+  }
+  .tags:hover{border-color:var(--line)}
+  .tags:focus-within{border-color:var(--accent);background:var(--card)}
+  .tag{
+    display:inline-flex;align-items:center;gap:4px;white-space:nowrap;
+    background:var(--accent-soft);color:#c9bcff;border:1px solid #3a2f6b;
+    padding:3px 4px 3px 9px;border-radius:999px;font-size:12.5px;font-weight:600;
+  }
+  .tag-x{
+    border:none;background:transparent;color:#9a8cff;cursor:pointer;font-size:14px;
+    line-height:1;padding:0 3px;border-radius:50%;
+  }
+  .tag-x:hover{background:rgba(255,93,108,.3);color:#fff}
+  .tag-input{
+    flex:1;min-width:78px;background:transparent;border:none;outline:none;
+    color:var(--txt);font-size:14px;font-family:inherit;padding:4px 2px;
+  }
+  .tag-input::placeholder{color:var(--txt-dim)}
+
   td.actions{width:46px;text-align:center}
   .del{
     border:none;background:transparent;color:var(--txt-dim);cursor:pointer;
@@ -238,7 +262,18 @@ let rows = [];
 const PRIOS = ["P0","P1","P2","P3","P4","P5","P6"];
 const PRIO_COLORS = {P0:"#ff5d6c",P1:"#ff7a45",P2:"#ff9f43",P3:"#feca57",P4:"#22d3a6",P5:"#54a0ff",P6:"#9aa2bd"};
 
-function blankRow(){ return {metier:"",priorite:"",script:"",mapping:"",pack:"",prix:""}; }
+function blankRow(){ return {metier:"",priorite:"",script:[],mapping:"",pack:"",prix:""}; }
+
+// --- Scripts multiples (étiquettes) ---
+function splitScripts(str){ return String(str||"").split(/\s*[|,]\s*/).map(s=>s.trim()).filter(Boolean); }
+function scriptsOf(r){ return Array.isArray(r.script) ? r.script : splitScripts(r.script); }
+function scriptsText(r){ return scriptsOf(r).join(" | "); }
+function tagsCellHTML(arr){
+  const chips = arr.map((s,ti)=>
+    `<span class="tag">${esc(s)}<button class="tag-x" data-ti="${ti}" tabindex="-1" title="Retirer">×</button></span>`
+  ).join("");
+  return chips + `<input class="tag-input" placeholder="${arr.length?'+ script…':'ex : qbx_police'}">`;
+}
 
 function prioOpts(v){
   let o = '<option value="">—</option>';
@@ -261,6 +296,8 @@ function load(){
     rows = window.__SEED_DATA__.map(r=>Object.assign(blankRow(), r));
   }
   if(!rows.length){ rows = [blankRow()]; }
+  // normalise les scripts en tableau (compat anciennes données texte)
+  rows.forEach(r=>{ r.script = scriptsOf(r); });
 }
 
 function save(){
@@ -284,7 +321,7 @@ function render(){
       <td class="rownum" title="Glisser pour réorganiser"><span class="grip">⠿</span><span class="rnum">${i+1}</span></td>
       <td><input data-f="metier"  value="${esc(r.metier)}"  placeholder="ex : Mécanicien"></td>
       <td class="prio"><select data-f="priorite">${prioOpts(r.priorite)}</select></td>
-      <td><input data-f="script"  value="${esc(r.script)}"  placeholder="ex : qb-mechanicjob"></td>
+      <td class="scripts"><div class="tags" data-f="script">${tagsCellHTML(scriptsOf(r))}</div></td>
       <td><input data-f="mapping" value="${esc(r.mapping)}" placeholder="ex : Tuner Shop MLO"></td>
       <td><input data-f="pack"    value="${esc(r.pack)}"    placeholder="ex : Combinaison garage"></td>
       <td class="price"><div class="price-wrap"><input data-f="prix" inputmode="decimal" value="${esc(r.prix)}" placeholder="0"><span class="suffix">€</span></div></td>
@@ -308,12 +345,52 @@ function recalc(){
 // Event delegation: edits
 tbody.addEventListener("input", e=>{
   const inp = e.target.closest("input");
-  if(!inp) return;
+  if(!inp || !inp.dataset.f) return;        // ignore le champ étiquette (sans data-f)
   const tr = e.target.closest("tr");
   const i = +tr.dataset.index;
   rows[i][inp.dataset.f] = inp.value;
   if(inp.dataset.f==="prix") recalc();
   save();
+});
+
+// ---------- Scripts multiples : gestion des étiquettes ----------
+function refreshTags(cell, i, focus){
+  cell.innerHTML = tagsCellHTML(rows[i].script);
+  if(focus){ const inp = cell.querySelector(".tag-input"); if(inp) inp.focus(); }
+  applyFilter();
+}
+// Ajout / suppression au clavier
+tbody.addEventListener("keydown", e=>{
+  const inp = e.target.closest(".tag-input");
+  if(!inp) return;
+  const cell = inp.closest(".tags");
+  const i = +inp.closest("tr").dataset.index;
+  if(e.key === "Enter" || e.key === ","){
+    e.preventDefault();
+    const v = inp.value.trim();
+    if(v){ rows[i].script.push(v); save(); refreshTags(cell, i, true); }
+  } else if(e.key === "Backspace" && inp.value === "" && rows[i].script.length){
+    rows[i].script.pop(); save(); refreshTags(cell, i, true);
+  }
+});
+// Valide le texte en attente quand on quitte le champ
+tbody.addEventListener("focusout", e=>{
+  const inp = e.target.closest(".tag-input");
+  if(!inp) return;
+  const v = inp.value.trim();
+  if(v){ const i = +inp.closest("tr").dataset.index; rows[i].script.push(v); save(); refreshTags(inp.closest(".tags"), i, false); }
+});
+// Clic : retirer une étiquette, ou focus dans la zone
+tbody.addEventListener("click", e=>{
+  const x = e.target.closest(".tag-x");
+  if(x){
+    const cell = x.closest(".tags");
+    const i = +x.closest("tr").dataset.index;
+    rows[i].script.splice(+x.dataset.ti, 1); save(); refreshTags(cell, i, false);
+    return;
+  }
+  const tags = e.target.closest(".tags");
+  if(tags && e.target === tags){ const inp = tags.querySelector(".tag-input"); if(inp) inp.focus(); }
 });
 
 // Priority dropdown change
@@ -417,7 +494,8 @@ function applyFilter(){
   const q = searchEl.value.trim().toLowerCase();
   tbody.querySelectorAll("tr").forEach(tr=>{
     if(!q){ tr.style.display=""; return; }
-    const txt = Array.from(tr.querySelectorAll("input,select")).map(i=>i.value.toLowerCase()).join(" ");
+    const tagsTxt = tr.querySelector(".tags") ? tr.querySelector(".tags").textContent : "";
+    const txt = (Array.from(tr.querySelectorAll("input,select")).map(i=>i.value).join(" ") + " " + tagsTxt).toLowerCase();
     tr.style.display = txt.includes(q) ? "" : "none";
   });
 }
@@ -427,7 +505,7 @@ document.getElementById("exportBtn").addEventListener("click", ()=>{
   const head = ["Nom du metier","Priorite","Script","Mapping","Pack de vetements","Prix"];
   const lines = [head.join(";")];
   rows.forEach(r=>{
-    lines.push([r.metier,r.priorite,r.script,r.mapping,r.pack,r.prix]
+    lines.push([r.metier,r.priorite,scriptsText(r),r.mapping,r.pack,r.prix]
       .map(v=>'"'+String(v??"").replace(/"/g,'""')+'"').join(";"));
   });
   const sum = rows.reduce((a,r)=>a+parsePrice(r.prix),0);
@@ -487,9 +565,9 @@ function importCSV(text){
     const o = {
       metier:get("metier"),
       priorite: PRIOS.includes(get("priorite")) ? get("priorite") : "",
-      script:get("script"), mapping:get("mapping"), pack:get("pack"), prix:get("prix")
+      script:splitScripts(get("script")), mapping:get("mapping"), pack:get("pack"), prix:get("prix")
     };
-    if(o.metier||o.script||o.mapping||o.pack||o.prix) out.push(o);
+    if(o.metier||o.script.length||o.mapping||o.pack||o.prix) out.push(o);
   }
   return out;
 }
